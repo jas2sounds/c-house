@@ -1,0 +1,16 @@
+[Unit]
+Description=C House now-playing / provenance page
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=c-house
+WorkingDirectory=/opt/c-house
+Environment=CHOUSE_ROOT=/opt/c-house
+ExecStart=/opt/c-house/.venv/bin/python -m radio.nowplaying --port 8080
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=C House liquidsoap stream
+After=network-online.target c-house-queue.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=c-house
+WorkingDirectory=/opt/c-house
+ExecStart=/usr/bin/liquidsoap /opt/c-house/deploy/radio.liq
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,51 @@
+<icecast>
+  <location>Earth</location>
+  <admin>set-your-email@example.org</admin>
+
+  <authentication>
+    <source-password>CHANGEME-SOURCE-PASSWORD</source-password>
+    <relay-password>CHANGEME-RELAY-PASSWORD</relay-password>
+    <admin-user>admin</admin-user>
+    <admin-password>CHANGEME-ADMIN-PASSWORD</admin-password>
+  </authentication>
+
+  <hostname>localhost</hostname>
+  <listen-socket>
+    <port>8000</port>
+  </listen-socket>
+
+  <fileserve>1</fileserve>
+
+  <paths>
+    <basedir>/usr/share/icecast2</basedir>
+    <logdir>/var/log/icecast2</logdir>
+    <webroot>/usr/share/icecast2/web</webroot>
+    <adminroot>/usr/share/icecast2/admin</adminroot>
+    <pidfile>/var/run/icecast2/icecast.pid</pidfile>
+    <alias source="/" destination="/status.xsl"/>
+  </paths>
+
+  <logging>
+    <accesslog>access.log</accesslog>
+    <errorlog>error.log</errorlog>
+    <loglevel>3</loglevel>
+    <logsize>10000</logsize>
+  </logging>
+
+  <security>
+    <chroot>0</chroot>
+    <changeowner>
+      <user>icecast2</user>
+      <group>icecast</group>
+    </changeowner>
+  </security>
+
+  <mount>
+    <mount-name>/stream</mount-name>
+    <max-listeners>100</max-listeners>
+    <fallback-mount>/fallback</fallback-mount>
+    <fallback-override>1</fallback-override>
+    <stream-name>C House</stream-name>
+    <stream-description>generative ambient radio</stream-description>
+  </mount>
+</icecast>

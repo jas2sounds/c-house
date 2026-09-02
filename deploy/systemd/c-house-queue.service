@@ -1,0 +1,19 @@
+[Unit]
+Description=C House queue daemon (renders generative pieces ahead of playback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=c-house
+WorkingDirectory=/opt/c-house
+Environment=CHOUSE_ROOT=/opt/c-house
+Environment=CHOUSE_CONTACT_EMAIL=set-your-email@example.org
+ExecStart=/opt/c-house/.venv/bin/python -m radio.queue_daemon
+Restart=always
+RestartSec=30
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
