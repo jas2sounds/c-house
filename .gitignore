@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 library/
 render_cache/
+deploy/fallback.wav
 cache/
 catalog.db
 *.log
