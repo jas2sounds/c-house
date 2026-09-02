@@ -73,17 +73,30 @@ def pick_sources(conn, rng):
     return items_used, chunks, drones, beds
 
 
-def build_drone(mix, rng, src, dur_s, cutoff):
-    """Two decorrelated stretched passes, low-passed, breathing under an LFO."""
-    src = dsp.lowpass(src, cutoff)
-    left = np.zeros((len(mix), 2), dtype="float32")
-    right = np.zeros((len(mix), 2), dtype="float32")
-    dsp.stretch_into(left, 0, src, rng, grain_s=float(rng.uniform(0.8, 2.0)))
-    dsp.stretch_into(right, 0, src[::-1], rng,
-                     grain_s=float(rng.uniform(0.8, 2.0)))
-    layer = (left + right) * 0.55
-    layer *= dsp.lfo(len(layer), float(rng.uniform(0.008, 0.03)),
-                     float(rng.uniform(0.15, 0.35)),
+def build_pad(mix, rng, src, dur_s, cutoff):
+    """The centerpiece: a long, chord-like pad.
+
+    2–3 'voices', each a different pitch offset of the source, heavily
+    stretched with LONG grains and tiny jitter (short grains + jitter read
+    as stuttering echoes; long grains read as a sustained pad), each
+    low-passed and level-matched, then all breathing together under one
+    very slow LFO.
+    """
+    voices = int(rng.integers(2, 4))
+    layer = np.zeros((len(mix), 2), dtype="float32")
+    voice = np.zeros((len(mix), 2), dtype="float32")
+    for _ in range(voices):
+        voice[:] = 0
+        semi = float(rng.choice([-12, -7, -5, 0, 0, 0, 5, 7]))
+        vsrc = dsp.pitch_shift(src, semi) if semi else src
+        vsrc = dsp.lowpass(vsrc, cutoff * float(rng.uniform(0.8, 1.6)))
+        dsp.stretch_into(voice, 0, vsrc, rng,
+                         grain_s=float(rng.uniform(5.0, 12.0)),
+                         jitter=0.08)
+        dsp.rms_normalize(voice, target=0.22)
+        layer += voice
+    layer *= dsp.lfo(len(layer), float(rng.uniform(0.004, 0.015)),
+                     float(rng.uniform(0.3, 0.5)),
                      float(rng.uniform(0, 6.28)))[:, None]
     mix += layer
 
@@ -108,7 +121,8 @@ def build_texture(mix, rng, chunks, start_s, dur_s):
 
 
 def build_motifs(mix, rng, chunks, intro_s, outro_s):
-    """Sparse pitch-shifted fragments scattered through the sustain."""
+    """Sparse pitch-shifted fragments scattered through the sustain.
+    Each is level-matched and softened so nothing pokes out of the mix."""
     dur_s = len(mix) / config.SAMPLE_RATE
     for t in sorted(rng.uniform(intro_s, max(intro_s + 1, dur_s - outro_s),
                                 int(rng.integers(3, 9)))):
@@ -119,9 +133,10 @@ def build_motifs(mix, rng, chunks, intro_s, outro_s):
         start = int(rng.integers(0, len(chunk) - frag_n))
         frag = dsp.pitch_shift(chunk[start:start + frag_n],
                                float(rng.choice([-7, -5, -3, 0, 3, 5, 7])))
+        frag = dsp.lowpass(frag, 2500.0)  # tame the sharp top edge
         env = dsp.cosine_fade(len(frag), rising=True) \
             * dsp.cosine_fade(len(frag), rising=False)
-        frag = frag * (env[:, None] * 0.5)
+        frag = dsp.rms_normalize(frag * env[:, None], target=0.055)
         pan = float(rng.uniform(-0.8, 0.8))
         pos = int(t * config.SAMPLE_RATE)
         end = min(len(mix), pos + len(frag))
@@ -132,6 +147,7 @@ def build_motifs(mix, rng, chunks, intro_s, outro_s):
 def build_bed(mix, rng, src, dur_s):
     """The untreated bed, looped quietly underneath everything."""
     src = dsp.lowpass(src, float(rng.uniform(400, 1200)))
+    src = dsp.rms_normalize(src, target=0.12)
     gain = float(rng.uniform(0.08, 0.16))
     pos = 0
     while pos < len(mix):
@@ -183,14 +199,13 @@ def compose(seed: str | None = None, duration_s: float | None = None,
 
     n = int(duration_s * config.SAMPLE_RATE)
     mix = np.zeros((n, 2), dtype="float32")
-    build_drone(mix, rng, drone_src, duration_s, cutoff=float(rng.uniform(500, 2000)))
+    build_pad(mix, rng, drone_src, duration_s, cutoff=float(rng.uniform(500, 2000)))
     build_texture(mix, rng, chunk_data, intro_s * 0.5, duration_s - intro_s)
     build_motifs(mix, rng, chunk_data, intro_s, outro_s)
     build_bed(mix, rng, bed_src, duration_s)
 
     dsp.apply_fades(mix, intro_s * 0.8, outro_s * 0.8)
-    np.tanh(mix * 1.2, out=mix)  # gentle glue / safety clip
-    dsp.normalize(mix)
+    dsp.loudness_match(mix, target=0.32)
 
     out_dir = out_dir or config.RENDER_DIR
     out_dir.mkdir(parents=True, exist_ok=True)

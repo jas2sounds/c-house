@@ -55,6 +55,14 @@ def hann(n: int) -> np.ndarray:
     return np.hanning(n).astype("float32")
 
 
+def rms_normalize(data: np.ndarray, target: float = 0.15,
+                  out: np.ndarray | None = None) -> np.ndarray:
+    """Scale data to a target RMS — keeps individual layers/grains from
+    spiking louder than everything else."""
+    r = float(np.sqrt((data ** 2).mean()) + 1e-9)
+    return np.multiply(data, target / r, out=out if out is not None else None)
+
+
 def stretch_into(dst: np.ndarray, dst_off: int, src: np.ndarray,
                  rng: np.random.Generator, grain_s: float = 1.2,
                  jitter: float = 0.35, speed: float = 1.0) -> None:
@@ -111,6 +119,11 @@ def cloud_into(dst: np.ndarray, dst_off: int, chunks: list[np.ndarray],
         pan = rng.uniform(-1, 1) * pan_spread  # -1 left .. +1 right
         gl = grain[:, 0] * win * (0.5 * (1 - pan))
         gr = grain[:, 1] * win * (0.5 * (1 + pan))
+        # level-match every grain: sources vary hugely in loudness, and an
+        # unnormed grain from a loud passage is exactly the sharp pop we don't want
+        g = np.stack([gl, gr], axis=1)
+        rms_normalize(g, target=0.10, out=g)
+        gl, gr = g[:, 0], g[:, 1]
         out_pos = dst_off + int(rng.integers(0, max(1, n - grain_n)))
         end = out_pos + grain_n
         dst[out_pos:end, 0] += gl[:max(0, min(grain_n, len(dst) - out_pos))]
@@ -141,4 +154,22 @@ def normalize(buf: np.ndarray, peak_db: float = -1.5) -> np.ndarray:
     peak = np.abs(buf).max()
     if peak > 0:
         buf *= (10 ** (peak_db / 20)) / peak
+    return buf
+
+
+def loudness_match(buf: np.ndarray, target: float = 0.35,
+                   percentile: float = 95.0) -> np.ndarray:
+    """Scale so the p95 loudness of 50 ms windows sits near `target`, then
+    soft-clip. Level-matches pieces for radio consistency and, unlike peak
+    normalization, doesn't let one transient drag the whole piece down."""
+    w = int(0.05 * config.SAMPLE_RATE)
+    frames = len(buf) // w
+    if frames < 4:
+        return buf
+    wrms = np.sqrt((buf[:frames * w].reshape(frames, w, 2) ** 2).mean(axis=(1, 2)))
+    voiced = wrms[wrms > 1e-4]
+    if not len(voiced):
+        return buf
+    scale = min(target / float(np.percentile(voiced, percentile)), 6.0)
+    np.tanh(buf * scale, out=buf)  # soft ceiling: quiet stays linear, peaks bend
     return buf
