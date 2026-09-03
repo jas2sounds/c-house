@@ -31,6 +31,20 @@ python3 -m venv .venv
 (The sample library can also be rsynced from the Mac instead of re-ingested:
 `rsync -a library/ c-house@vps:/opt/c-house/library/`.)
 
+### Syncing material after ingest (Mac -> VPS)
+
+When new items are ingested and pieces rendered locally, ship the delta with:
+
+```sh
+python -m deploy.sync_material            # add --dry-run to preview
+```
+
+It rsyncs `library/` and unplayed `render_cache/` pieces, then merges the new
+`items`/`samples`/`pieces` rows into the VPS catalog with `INSERT OR IGNORE`
+— play history (`pieces.played_at`) and VPS-only items are never touched.
+Host/user/target come from `CHOUSE_VPS`, `CHOUSE_VPS_USER`, `CHOUSE_VPS_ROOT`
+(defaults: `170.9.242.84`, `c-house`, `/opt/c-house`).
+
 ## 3. Secrets
 
 Edit `deploy/icecast.xml` and `deploy/radio.liq`: replace every
