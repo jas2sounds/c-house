@@ -158,11 +158,17 @@ def build_bed(mix, rng, src, dur_s):
         pos += len(seg)
 
 
+def smart_title(s: str) -> str:
+    """Title-case that leaves apostrophes alone (`.title()` makes Alice'S)."""
+    return " ".join(w if w.isupper() else w[:1].upper() + w[1:]
+                    for w in s.split())
+
+
 def make_title(conn, hero, rng):
     row = conn.execute("SELECT title FROM items WHERE identifier = ?",
                        (hero,)).fetchone()
     base = (row["title"] if row and row["title"] else hero)
-    base = base.split(":")[0].strip().title()[:40]
+    base = smart_title(base.split(":")[0].strip())[:40]
     pattern = TITLE_PATTERNS[int(rng.integers(len(TITLE_PATTERNS)))]
     return f"{pattern.format(t=base)} {ROMAN[int(rng.integers(len(ROMAN)))]}"
 
