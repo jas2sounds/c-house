@@ -28,28 +28,34 @@ from pathlib import Path
 from chouse import config, db
 
 VPS_HOST = os.environ.get("CHOUSE_VPS", "170.9.242.84")
-VPS_USER = os.environ.get("CHOUSE_VPS_USER", "c-house")
-VPS_ROOT = Path(os.environ.get("CHOUSE_VPS_ROOT", "/opt/c-house"))
+VPS_USER = os.environ.get("CHOUSE_VPS_USER", "ubuntu")
+VPS_ROOT = Path(os.environ.get("CHOUSE_VPS_ROOT", "/home/ubuntu/c-house"))
 
 SQL_HEADER = "PRAGMA busy_timeout=10000;\nBEGIN;\n"
 SQL_FOOTER = "COMMIT;\n"
 
 
 def vps_target(path: str | None = None) -> str:
+    """scp/rsync-style destination: user@host:path."""
     return f"{VPS_USER}@{VPS_HOST}:{path if path is not None else VPS_ROOT}"
 
 
 def ssh(cmd: str) -> str:
-    out = subprocess.run(["ssh", vps_target(""), cmd],
-                         capture_output=True, text=True, check=True)
+    """Run a (multi-line) shell script on the VPS via stdin."""
+    out = subprocess.run(["ssh", f"{VPS_USER}@{VPS_HOST}", "bash"],
+                         input=cmd, capture_output=True, text=True, check=True)
     return out.stdout
 
 
 def vps_items() -> set[str]:
-    out = ssh(f"cd {VPS_ROOT} && .venv/bin/python -c "
-              f"'import sqlite3; c = sqlite3.connect(\"catalog.db\"); "
-              f"print(\"\\n\".join(r[0] for r in "
-              f"c.execute(\"SELECT identifier FROM items\")))'")
+    out = ssh("\n".join([
+        f"cd {VPS_ROOT} && .venv/bin/python - <<'PY'",
+        "import sqlite3",
+        "c = sqlite3.connect('catalog.db')",
+        "print('\\n'.join(r[0] for r in c.execute("
+        "'SELECT identifier FROM items')))",
+        "PY",
+    ]))
     return {line.strip() for line in out.splitlines() if line.strip()}
 
 
@@ -124,8 +130,6 @@ def rsync(paths: list[Path], dest_dir: Path, dry: bool) -> None:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--skip-library", action="store_true",
-                    help="skip the bulk library rsync (rows still merge)")
     args = ap.parse_args()
 
     print(f"checking catalog on {vps_target()}")
@@ -137,18 +141,23 @@ def main():
         item_sql, sample_files = item_rows(conn, missing)
         piece_sql, piece_files = piece_rows(conn)
 
+    # Never bulk-rsync library/: the VPS may have prepared the shared items
+    # from different downloads, and overwriting its prepared/ wavs would
+    # invalidate the sample spans already in its catalog. Ship only the new
+    # items' raw dirs + their prepared wavs.
+    sample_files = list(dict.fromkeys(sample_files))
+    raw_dirs = [p for p in (config.LIBRARY_DIR / i for i in missing)
+                if p.is_dir()]
+
     print(f"items to add: {len(missing)} -> {missing}")
-    print(f"sample files: {len(sample_files)}, "
-          f"pieces to ship: {len(piece_files) // 2}")
+    print(f"files to ship: {len(raw_dirs)} raw item dir(s), "
+          f"{len(sample_files)} prepared wav(s), "
+          f"{len(piece_files)} rendered piece file(s)")
 
     if not args.dry_run:
-        if not args.skip_library and sample_files:
-            # ship the whole library once; rsync skips what the VPS already has
-            print("syncing library/ (additive)")
-            subprocess.run(
-                ["rsync", "-a", f"{config.LIBRARY_DIR}/",
-                 vps_target(str(VPS_ROOT / "library") + "/")],
-                check=True, capture_output=True)
+        if raw_dirs or sample_files:
+            print("syncing new items' library files (targeted, additive)")
+            rsync(raw_dirs + sample_files, VPS_ROOT, dry=False)
         if piece_files:
             print("syncing rendered pieces")
             rsync(piece_files, VPS_ROOT, dry=False)
@@ -163,9 +172,13 @@ def main():
                             vps_target("/tmp/c_house_sync.sql")], check=True)
             Path(sql_path).unlink()
             print("applying catalog rows on VPS")
-            ssh(f"cd {VPS_ROOT} && .venv/bin/python -c "
-                f"'import sqlite3; c = sqlite3.connect(\"catalog.db\"); "
-                f"c.executescript(open(\"/tmp/c_house_sync.sql\").read())'")
+            ssh("\n".join([
+                f"cd {VPS_ROOT} && .venv/bin/python - <<'PY'",
+                "import sqlite3",
+                "c = sqlite3.connect('catalog.db')",
+                "c.executescript(open('/tmp/c_house_sync.sql').read())",
+                "PY",
+            ]))
 
     print("done — the VPS queue daemon picks up new material on its next cycle")
 

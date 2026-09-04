@@ -43,7 +43,7 @@ It rsyncs `library/` and unplayed `render_cache/` pieces, then merges the new
 `items`/`samples`/`pieces` rows into the VPS catalog with `INSERT OR IGNORE`
 — play history (`pieces.played_at`) and VPS-only items are never touched.
 Host/user/target come from `CHOUSE_VPS`, `CHOUSE_VPS_USER`, `CHOUSE_VPS_ROOT`
-(defaults: `170.9.242.84`, `c-house`, `/opt/c-house`).
+(defaults: `170.9.242.84`, `ubuntu`, `/home/ubuntu/c-house`).
 
 ## 3. Secrets
 
