@@ -74,14 +74,21 @@ def item_rows(conn, identifiers) -> tuple[str, list[Path]]:
         for s in conn.execute("SELECT item_id, path, kind, duration, rms, "
                               "centroid, noisiness FROM samples "
                               "WHERE item_id = ?", (ident,)):
-            # sample paths carry a virtual span suffix: 'x.wav#0-604160'
-            local = Path(s["path"].partition("#")[0])
+            # sample paths carry a virtual span suffix: 'x.wav#0-604160'.
+            # The file ships whole, but the catalog row must keep the suffix —
+            # it locates the span when composing and keeps the path UNIQUE
+            # across the item's segments (dropping it collapses them to one).
+            path = s["path"]
+            span = path.partition("#")[2]
+            local = Path(path.partition("#")[0])
             if not local.exists():
                 continue
             files.append(local)
             vpath = str(local).replace(str(config.ROOT), str(VPS_ROOT))
+            if span:
+                vpath += f"#{span}"
             sql.append(
-                "INSERT OR REPLACE INTO samples (item_id, path, kind, "
+                "INSERT OR IGNORE INTO samples (item_id, path, kind, "
                 "duration, rms, centroid, noisiness) VALUES ("
                 f"'{s['item_id']}', '{vpath}', '{s['kind']}', "
                 f"{s['duration']}, {s['rms']}, {s['centroid']}, "
@@ -111,19 +118,21 @@ def piece_rows(conn) -> tuple[str, list[Path]]:
 
 
 def rsync(paths: list[Path], dest_dir: Path, dry: bool) -> None:
-    by_parent: dict[Path, list[str]] = {}
+    by_parent: dict[Path, list[Path]] = {}
     for p in paths:
-        by_parent.setdefault(p.parent, []).append(p.name)
-    for parent, names in sorted(by_parent.items()):
+        by_parent.setdefault(p.parent, []).append(p)
+    for parent, group in sorted(by_parent.items()):
+        # --relative recreates each source's path relative to ROOT under the
+        # destination, so the destination must be ROOT itself — pre-joining
+        # the parent here doubled every path (render_cache/render_cache/...).
         rel_dest = dest_dir / parent.relative_to(config.ROOT)
-        print(f"  rsync {parent} -> {rel_dest} ({len(names)} file(s))")
+        print(f"  rsync {parent} -> {rel_dest} ({len(group)} file(s))")
         if dry:
             continue
         subprocess.run(
             ["rsync", "-a", "--relative",
-             *[f"./{p.relative_to(config.ROOT)}" for p in paths
-               if p.parent == parent],
-             vps_target(str(rel_dest))],
+             *[f"./{p.relative_to(config.ROOT)}" for p in group],
+             vps_target(str(dest_dir))],
             check=True, capture_output=True)
 
 
