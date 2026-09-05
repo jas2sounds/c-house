@@ -49,7 +49,7 @@ def pick_sources(conn, rng):
     items = [r["item_id"] for r in conn.execute(
         "SELECT DISTINCT item_id FROM samples")]
     if not items:
-        raise SystemExit("no samples in catalog — run `python -m prep.run` first")
+        raise RuntimeError("no samples in catalog — run `python -m prep.run` first")
     hero = items[rng.integers(len(items))]
 
     def query(kind, item):
@@ -59,7 +59,7 @@ def pick_sources(conn, rng):
 
     chunks = query("chunk", hero)
     if not chunks:
-        raise SystemExit(f"item {hero} has no chunks")
+        raise RuntimeError(f"item {hero} has no chunks")
 
     items_used = [hero]
     # cross-pollinate with one other item, sometimes
@@ -93,7 +93,7 @@ def build_pad(mix, rng, src, dur_s, cutoff):
         dsp.stretch_into(voice, 0, vsrc, rng,
                          grain_s=float(rng.uniform(5.0, 12.0)),
                          jitter=0.08)
-        dsp.rms_normalize(voice, target=0.22)
+        dsp.rms_normalize(voice, target=0.22, out=voice)
         layer += voice
     layer *= dsp.lfo(len(layer), float(rng.uniform(0.004, 0.015)),
                      float(rng.uniform(0.3, 0.5)),
@@ -196,7 +196,7 @@ def compose(seed: str | None = None, duration_s: float | None = None,
         except Exception:
             continue
     if not chunk_data:
-        raise SystemExit("no readable chunks")
+        raise RuntimeError("no readable chunks")
     drone_src = dsp.read_segment(
         drone_paths[int(rng.integers(len(drone_paths)))]) \
         if drone_paths else chunk_data[0]
